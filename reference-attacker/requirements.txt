@@ -1,0 +1,4 @@
+aiohttp
+fake-useragent
+pwntools
+cryptography

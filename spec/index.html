@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WICC Specification</title>
+<!--
+  Standalone spec renderer.
+
+  It fetches ./spec.md and ./params.json at runtime, so those two files remain
+  the single source of truth and git can diff them like any other text file.
+  Because it uses fetch(), it must be served over http(s) (rawgit / jsDelivr /
+  GitHub Pages / `python -m http.server`), not opened directly as a file:// URL.
+
+  Syntax extensions understood on top of Markdown:
+    @PARAM        -> rendered as a `NAME=value` code chip, value from params.json
+    [Term]: body  -> a definition (list item); the term becomes a jump target
+    [Term]        -> a reference; becomes a hyperlink to the matching definition
+
+  Optional query overrides: ?spec=other.md&params=other.json
+-->
+<style>
+  :root{
+    --bg:#f7f8fa; --panel:#ffffff; --text:#1c2230; --muted:#5b6577;
+    --border:#e2e6ec; --border-strong:#cdd3dd;
+    --accent:#3a5bd9; --accent-soft:#e8edfd;
+    --code-bg:#f0f2f6; --code-text:#243; --code-border:#e0e4ea;
+    --param-bg:#eef4ff; --param-border:#c9d8fb; --param-name:#274bc0;
+    --param-val:#0f7a52; --param-eq:#8a93a6;
+    --unset:#c2410c; --unset-bg:#fdeee2; --unset-border:#f4c9ab;
+    --ref:#2f52c8; --ref-underline:#b9c6f2; --undef:#a2402f; --undef-line:#e7b9af;
+    --flash:#fff3b0; --shadow:0 8px 30px rgba(20,30,60,.14);
+    --term-bg:#eef2ff;
+  }
+  :root[data-theme="dark"]{
+    --bg:#0f1320; --panel:#161b2b; --text:#dfe4ee; --muted:#93a0b6;
+    --border:#242c40; --border-strong:#33405e;
+    --accent:#7d97ff; --accent-soft:#1c2540;
+    --code-bg:#1b2233; --code-text:#c8d4ea; --code-border:#2a3450;
+    --param-bg:#182142; --param-border:#33447d; --param-name:#9db4ff;
+    --param-val:#5fd3a0; --param-eq:#7683a0;
+    --unset:#ff9d6b; --unset-bg:#331d10; --unset-border:#7a4321;
+    --ref:#9db4ff; --ref-underline:#3a4c86; --undef:#ff9d8a; --undef-line:#6e392f;
+    --flash:#4d4413; --shadow:0 10px 34px rgba(0,0,0,.5);
+    --term-bg:#1b2440;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]):not([data-theme="dark"]){
+      --bg:#0f1320; --panel:#161b2b; --text:#dfe4ee; --muted:#93a0b6;
+      --border:#242c40; --border-strong:#33405e;
+      --accent:#7d97ff; --accent-soft:#1c2540;
+      --code-bg:#1b2233; --code-text:#c8d4ea; --code-border:#2a3450;
+      --param-bg:#182142; --param-border:#33447d; --param-name:#9db4ff;
+      --param-val:#5fd3a0; --param-eq:#7683a0;
+      --unset:#ff9d6b; --unset-bg:#331d10; --unset-border:#7a4321;
+      --ref:#9db4ff; --ref-underline:#3a4c86; --undef:#ff9d8a; --undef-line:#6e392f;
+      --flash:#4d4413; --shadow:0 10px 34px rgba(0,0,0,.5);
+      --term-bg:#1b2440;
+    }
+  }
+
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  code,.mono{font-family:"SFMono-Regular",ui-monospace,"JetBrains Mono",Menlo,Consolas,"Liberation Mono",monospace}
+
+  /* Top bar */
+  header.topbar{
+    position:sticky; top:0; z-index:40; background:var(--panel);
+    border-bottom:1px solid var(--border);
+    display:flex; align-items:center; gap:14px; padding:12px 22px;
+  }
+  .topbar .brand{display:flex; flex-direction:column; min-width:0}
+  .topbar .title{font-weight:700; font-size:16px; letter-spacing:.2px}
+  .topbar .sub{font-size:12px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  .topbar .spacer{flex:1}
+  .btn{
+    appearance:none; cursor:pointer; border:1px solid var(--border-strong);
+    background:transparent; color:var(--text); border-radius:8px;
+    padding:7px 11px; font-size:13px; display:inline-flex; align-items:center; gap:6px;
+  }
+  .btn:hover{background:var(--accent-soft); border-color:var(--accent)}
+  .btn.active{background:var(--accent); border-color:var(--accent); color:#fff}
+  .btn.menu{display:none}
+
+  /* Layout */
+  .layout{max-width:1280px; margin:0 auto; display:grid; grid-template-columns:290px minmax(0,1fr); gap:28px; padding:0 22px}
+  nav.toc{
+    position:sticky; top:61px; align-self:start; height:calc(100vh - 61px);
+    overflow:auto; padding:22px 8px 40px 0;
+  }
+  nav.toc .toc-head{font-size:11px; text-transform:uppercase; letter-spacing:.9px; color:var(--muted); margin:6px 0 10px 12px}
+  nav.toc a{
+    display:block; text-decoration:none; color:var(--muted);
+    padding:4px 12px; border-left:2px solid transparent; border-radius:0 6px 6px 0;
+    font-size:13.5px; line-height:1.4;
+  }
+  nav.toc a:hover{color:var(--text); background:var(--accent-soft)}
+  nav.toc a.lvl2{padding-left:26px; font-size:13px}
+  nav.toc a.active{color:var(--accent); border-left-color:var(--accent); background:var(--accent-soft); font-weight:600}
+
+  /* Content */
+  main{padding:26px 0 120px; min-width:0}
+  main .note{
+    margin:0 0 26px; padding:12px 16px; border:1px solid var(--border);
+    border-left:3px solid var(--accent); background:var(--panel);
+    border-radius:8px; color:var(--muted); font-size:14.5px;
+  }
+  main h1,main h2,main h3{scroll-margin-top:78px; line-height:1.25; position:relative}
+  main h1{font-size:28px; margin:44px 0 14px; padding-bottom:8px; border-bottom:1px solid var(--border)}
+  main h1:first-of-type{margin-top:4px}
+  main h2{font-size:20px; margin:34px 0 10px}
+  main h3{font-size:16.5px; margin:26px 0 8px}
+  main .anchor{
+    position:absolute; left:-1.1em; top:0; padding-right:.35em; color:var(--border-strong);
+    text-decoration:none; opacity:0; font-weight:400;
+  }
+  main h1:hover .anchor,main h2:hover .anchor,main h3:hover .anchor{opacity:1}
+  main .anchor:hover{color:var(--accent)}
+  main p{margin:12px 0}
+  main ul{margin:12px 0; padding-left:22px}
+  main li{margin:8px 0; scroll-margin-top:80px}
+
+  /* Definitions */
+  li.def{list-style:none; margin-left:-22px; padding:9px 12px; border:1px solid transparent; border-radius:9px}
+  li.def .term{
+    display:inline-block; font-weight:700; color:var(--text);
+    background:var(--term-bg); border:1px solid var(--param-border);
+    padding:.5px 7px; border-radius:6px; margin-right:2px;
+  }
+  li.def:target{background:var(--panel); border-color:var(--accent); animation:flashbg 1.9s ease}
+
+  /* Inline code */
+  main code{
+    background:var(--code-bg); color:var(--code-text); border:1px solid var(--code-border);
+    padding:.08em .4em; border-radius:5px; font-size:.88em; word-break:break-word;
+  }
+
+  /* Param chip: NAME=value in code-block style */
+  .param{
+    display:inline-flex; align-items:baseline; vertical-align:baseline;
+    background:var(--param-bg); border:1px solid var(--param-border);
+    border-radius:6px; padding:.05em .1em; margin:0 1px; cursor:pointer;
+    font-family:"SFMono-Regular",ui-monospace,Menlo,Consolas,monospace; font-size:.82em;
+    line-height:1.5; white-space:nowrap;
+  }
+  .param .p-name{color:var(--param-name); font-weight:600; padding:0 .25em}
+  .param .p-eq{color:var(--param-eq); padding:0 .05em}
+  .param .p-val{color:var(--param-val); font-weight:600; padding:0 .4em 0 .25em}
+  .param:hover{border-color:var(--accent); box-shadow:0 0 0 2px var(--accent-soft)}
+  .param.unset{background:var(--unset-bg); border-color:var(--unset-border)}
+  .param.unset .p-name{color:var(--unset)}
+  .param.unset .p-val{color:var(--unset)}
+  body.hl-params .param{box-shadow:0 0 0 2px var(--accent-soft); border-color:var(--accent)}
+  body.hl-params .param.unset{box-shadow:0 0 0 2px var(--unset-border)}
+
+  /* References */
+  a.ref{
+    color:var(--ref); text-decoration:none;
+    border-bottom:1.5px solid var(--ref-underline); cursor:pointer;
+  }
+  a.ref:hover{border-bottom-color:var(--ref); background:var(--accent-soft); border-radius:3px}
+  .ref-undef{color:var(--undef); border-bottom:1.5px dotted var(--undef-line); cursor:help}
+  .ref-inpreview{color:var(--ref); font-weight:600}
+
+  em{font-style:italic}
+
+  /* Hover popover for references */
+  #popover{
+    position:absolute; z-index:60; max-width:420px; background:var(--panel);
+    border:1px solid var(--border-strong); border-radius:10px; box-shadow:var(--shadow);
+    padding:12px 14px; font-size:13.5px; line-height:1.55; color:var(--text);
+    opacity:0; transform:translateY(4px); pointer-events:none; transition:opacity .12s, transform .12s;
+  }
+  #popover.show{opacity:1; transform:translateY(0); pointer-events:auto}
+  #popover .pop-term{font-weight:700; margin-bottom:5px; color:var(--accent)}
+  #popover .pop-body{color:var(--muted)}
+  #popover .pop-body .param{cursor:default}
+
+  /* States */
+  #status{padding:60px 22px; max-width:720px; margin:0 auto; text-align:center}
+  #status h2{margin:0 0 10px}
+  #status .err{
+    text-align:left; background:var(--panel); border:1px solid var(--border);
+    border-left:3px solid var(--unset); border-radius:8px; padding:16px 18px; margin-top:18px;
+  }
+  #status code{background:var(--code-bg); padding:.1em .4em; border-radius:5px; border:1px solid var(--code-border)}
+  .spin{width:26px;height:26px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;display:inline-block;animation:spin .8s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes flashbg{0%{background:var(--flash)}100%{background:transparent}}
+
+  @media (max-width:900px){
+    .layout{grid-template-columns:1fr}
+    nav.toc{
+      position:fixed; top:0; left:0; bottom:0; width:280px; height:100vh; z-index:50;
+      background:var(--panel); border-right:1px solid var(--border);
+      transform:translateX(-100%); transition:transform .22s; padding:18px 10px 40px;
+    }
+    body.nav-open nav.toc{transform:none}
+    body.nav-open::after{content:"";position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:45}
+    .btn.menu{display:inline-flex}
+  }
+</style>
+</head>
+<body>
+  <header class="topbar">
+    <button class="btn menu" id="menuBtn" aria-label="Toggle navigation">☰</button>
+    <div class="brand">
+      <span class="title">WICC Specification</span>
+      <span class="sub" id="sourceSub">rendered from spec.md + params.json</span>
+    </div>
+    <span class="spacer"></span>
+    <button class="btn" id="hlBtn" title="Highlight every @parameter in the document">◈ Params</button>
+    <button class="btn" id="themeBtn" title="Toggle light / dark">◐ Theme</button>
+  </header>
+
+  <div id="status">
+    <div class="spin"></div>
+    <h2 style="margin-top:14px">Loading specification…</h2>
+  </div>
+
+  <div class="layout" id="app" hidden>
+    <nav class="toc" id="toc" aria-label="Table of contents">
+      <div class="toc-head">Contents</div>
+      <div id="tocList"></div>
+    </nav>
+    <main id="content"></main>
+  </div>
+
+  <div id="popover" aria-hidden="true"></div>
+
+<script>
+(function(){
+  "use strict";
+
+  // ---- config ----------------------------------------------------------
+  var q = new URLSearchParams(location.search);
+  var SPEC_URL   = q.get('spec')   || 'spec.md';
+  var PARAMS_URL = q.get('params') || 'params.json';
+
+  // ---- state -----------------------------------------------------------
+  var PARAMS = {};
+  var HAS_PARAMS_FILE = false;
+  var TERMS = new Map();          // exact term name -> {id, name, bodyRaw, previewHtml}
+  var USED_IDS = new Set();
+  var PARAM_ORDER = [];           // unique @param names in document order
+
+  // ---- helpers ---------------------------------------------------------
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"]/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];
+    });
+  }
+  function slugify(s){
+    return String(s).toLowerCase().trim()
+      .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'') || 'x';
+  }
+  function uniqueId(base){
+    var id = base, n = 2;
+    while(USED_IDS.has(id)){ id = base + '-' + (n++); }
+    USED_IDS.add(id);
+    return id;
+  }
+  function formatValue(v){
+    if(v === undefined || v === null) return {text:'?', unset:true};
+    if(typeof v === 'object') return {text:JSON.stringify(v), unset:false};
+    return {text:String(v), unset:false};
+  }
+  function renderParam(name){
+    var present = Object.prototype.hasOwnProperty.call(PARAMS, name);
+    var f = formatValue(present ? PARAMS[name] : undefined);
+    var cls = 'param' + (f.unset ? ' unset' : '');
+    var title = f.unset
+      ? name + ' — not set in params.json'
+      : name + ' = ' + f.text;
+    return '<span class="'+cls+'" data-param="'+escapeHtml(name)+'" title="'+escapeHtml(title)+'">'
+         +   '<span class="p-name">'+escapeHtml(name)+'</span>'
+         +   '<span class="p-eq">=</span>'
+         +   '<span class="p-val">'+escapeHtml(f.text)+'</span>'
+         + '</span>';
+  }
+
+  // ---- inline renderer -------------------------------------------------
+  // Order matters: protect code + params (they contain _ and other chars that
+  // would trip italics / refs), then escape, then italics, then references.
+  function renderInline(text, forPreview){
+    var stash = [];
+    function keep(html){ stash.push(html); return ' ' + (stash.length-1) + ''; }
+
+    // 1. inline code spans
+    text = text.replace(/`([^`]+)`/g, function(_,code){
+      return keep('<code>'+escapeHtml(code)+'</code>');
+    });
+    // 2. @PARAM chips
+    text = text.replace(/@([A-Z][A-Z0-9_]*)/g, function(_,name){
+      return keep(renderParam(name));
+    });
+    // 3. escape the remaining human text (placeholders survive: they are  ..)
+    text = escapeHtml(text);
+    // 4. emphasis
+    text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    text = text.replace(/_([^_]+)_/g, '<em>$1</em>');
+    // 5. [Term] references
+    text = text.replace(/\[([^\]]+)\]/g, function(_,name){
+      var t = TERMS.get(name);
+      if(t){
+        if(forPreview) return '<span class="ref-inpreview">'+escapeHtml(name)+'</span>';
+        return '<a class="ref" href="#'+t.id+'" data-term="'+escapeHtml(name)+'">'+escapeHtml(name)+'</a>';
+      }
+      return '<span class="ref-undef" title="No definition found for &quot;'+escapeHtml(name)+'&quot;">'+escapeHtml(name)+'</span>';
+    });
+    // 6. restore protected spans
+    text = text.replace(/ (\d+)/g, function(_,i){ return stash[+i]; });
+    return text;
+  }
+
+  // ---- block parser ----------------------------------------------------
+  function parseBlocks(md){
+    var lines = md.replace(/\r\n?/g,'\n').split('\n');
+    var blocks = [], i = 0;
+    while(i < lines.length){
+      var line = lines[i];
+      if(/^\s*$/.test(line)){ i++; continue; }
+      var h = line.match(/^(#{1,6})\s+(.*)$/);
+      if(h){ blocks.push({type:'heading', level:h[1].length, text:h[2].trim()}); i++; continue; }
+      if(/^\s*-\s+/.test(line)){
+        var items = [];
+        while(i < lines.length && /^\s*-\s+/.test(lines[i])){
+          items.push(lines[i].replace(/^\s*-\s+/,'').replace(/\s+$/,''));
+          i++;
+        }
+        blocks.push({type:'list', items:items});
+        continue;
+      }
+      var para = [];
+      while(i < lines.length && !/^\s*$/.test(lines[i]) &&
+            !/^(#{1,6})\s+/.test(lines[i]) && !/^\s*-\s+/.test(lines[i])){
+        para.push(lines[i].trim()); i++;
+      }
+      blocks.push({type:'para', text:para.join(' ')});
+    }
+    return blocks;
+  }
+
+  var DEF_RE = /^\[([^\]]+)\]:\s*(.*)$/;
+
+  // Pass 1: register every definition so forward references resolve.
+  function collectTerms(blocks){
+    blocks.forEach(function(b){
+      if(b.type !== 'list') return;
+      b.items.forEach(function(item){
+        var m = item.match(DEF_RE);
+        if(m && !TERMS.has(m[1])){
+          var id = uniqueId('def-' + slugify(m[1]));
+          TERMS.set(m[1], {id:id, name:m[1], bodyRaw:m[2], previewHtml:''});
+        }
+      });
+    });
+    // Now that all terms exist, build hover-preview HTML.
+    TERMS.forEach(function(t){ t.previewHtml = renderInline(t.bodyRaw, true); });
+  }
+
+  // Pass 2: render.
+  function renderBlocks(blocks){
+    var out = [], toc = [];
+    blocks.forEach(function(b){
+      if(b.type === 'heading'){
+        if(b.level <= 2){
+          var id = uniqueId('sec-' + slugify(b.text));
+          toc.push({level:b.level, text:b.text, id:id});
+          out.push('<h'+b.level+' id="'+id+'"><a class="anchor" href="#'+id+'" aria-hidden="true">#</a>'
+                   + renderInline(b.text) + '</h'+b.level+'>');
+        } else {
+          out.push('<h'+b.level+'>'+renderInline(b.text)+'</h'+b.level+'>');
+        }
+      } else if(b.type === 'para'){
+        out.push('<p>'+renderInline(b.text)+'</p>');
+      } else { // list
+        out.push('<ul>');
+        b.items.forEach(function(item){
+          var m = item.match(DEF_RE);
+          if(m){
+            var t = TERMS.get(m[1]);
+            var id = t ? t.id : uniqueId('def-'+slugify(m[1]));
+            out.push('<li class="def" id="'+id+'">'
+                     + '<span class="term">'+escapeHtml(m[1])+'</span> '
+                     + renderInline(m[2]) + '</li>');
+          } else {
+            out.push('<li>'+renderInline(item)+'</li>');
+          }
+        });
+        out.push('</ul>');
+      }
+    });
+    return {html:out.join('\n'), toc:toc};
+  }
+
+  function scanParamOrder(md){
+    var seen = new Set(), re = /@([A-Z][A-Z0-9_]*)/g, m;
+    while((m = re.exec(md))){ if(!seen.has(m[1])){ seen.add(m[1]); PARAM_ORDER.push(m[1]); } }
+  }
+
+  // ---- sidebar params panel -------------------------------------------
+  // ---- popover ---------------------------------------------------------
+  var pop = document.getElementById('popover');
+  var popHideTimer = null, popCurrent = null;
+  function showPopover(anchor){
+    var t = TERMS.get(anchor.getAttribute('data-term'));
+    if(!t) return;
+    clearTimeout(popHideTimer);
+    popCurrent = anchor;
+    pop.innerHTML = '<div class="pop-term">'+escapeHtml(t.name)+'</div><div class="pop-body">'+t.previewHtml+'</div>';
+    pop.classList.add('show'); pop.setAttribute('aria-hidden','false');
+    var r = anchor.getBoundingClientRect();
+    var pr = pop.getBoundingClientRect();
+    var left = window.scrollX + r.left;
+    left = Math.min(left, window.scrollX + document.documentElement.clientWidth - pr.width - 12);
+    left = Math.max(window.scrollX + 10, left);
+    var top = window.scrollY + r.bottom + 8;
+    if(r.bottom + pr.height + 16 > window.innerHeight && r.top - pr.height - 8 > 0){
+      top = window.scrollY + r.top - pr.height - 8;
+    }
+    pop.style.left = left + 'px';
+    pop.style.top = top + 'px';
+  }
+  function hidePopoverSoon(){
+    clearTimeout(popHideTimer);
+    popHideTimer = setTimeout(function(){
+      pop.classList.remove('show'); pop.setAttribute('aria-hidden','true'); popCurrent = null;
+    }, 180);
+  }
+  document.addEventListener('mouseover', function(e){
+    var a = e.target.closest && e.target.closest('a.ref[data-term]');
+    if(a){ showPopover(a); }
+  });
+  document.addEventListener('mouseout', function(e){
+    var a = e.target.closest && e.target.closest('a.ref[data-term]');
+    if(a){ hidePopoverSoon(); }
+  });
+  pop.addEventListener('mouseenter', function(){ clearTimeout(popHideTimer); });
+  pop.addEventListener('mouseleave', hidePopoverSoon);
+
+  // ---- active TOC on scroll -------------------------------------------
+  function setupScrollSpy(){
+    var links = {};
+    Array.prototype.forEach.call(document.querySelectorAll('#tocList a'), function(a){
+      links[a.getAttribute('data-target')] = a;
+    });
+    var heads = Array.prototype.slice.call(document.querySelectorAll('#content h1[id], #content h2[id]'));
+    var ticking = false, activeEl = null;
+    function update(){
+      ticking = false;
+      var current = null;
+      for(var i=0;i<heads.length;i++){
+        if(heads[i].getBoundingClientRect().top - 92 <= 0) current = heads[i]; else break;
+      }
+      if(!current && heads.length) current = heads[0];
+      var link = current ? links[current.id] : null;
+      if(link !== activeEl){
+        if(activeEl) activeEl.classList.remove('active');
+        if(link){ link.classList.add('active'); activeEl = link; }
+        else activeEl = null;
+      }
+    }
+    window.addEventListener('scroll', function(){
+      if(!ticking){ ticking = true; requestAnimationFrame(update); }
+    }, {passive:true});
+    update();
+  }
+
+  // ---- render root -----------------------------------------------------
+  function render(md){
+    scanParamOrder(md);
+    var blocks = parseBlocks(md);
+    collectTerms(blocks);
+    var r = renderBlocks(blocks);
+
+    var termCount = TERMS.size;
+    document.getElementById('sourceSub').textContent ="";
+
+    var note = '<div class="note">This page is rendered live from <code>'+escapeHtml(SPEC_URL)+'</code> and '
+      + '<code>'+escapeHtml(PARAMS_URL)+'</code>. '
+      + 'Those files serve as the source of truth. This page was unapologetically clanked and only serves as a visualization.</div>';
+
+    document.getElementById('content').innerHTML = note + r.html;
+
+    var tocHtml = r.toc.map(function(s){
+      return '<a class="lvl'+s.level+'" data-target="'+s.id+'" href="#'+s.id+'">'+escapeHtml(s.text)+'</a>';
+    }).join('');
+    document.getElementById('tocList').innerHTML = tocHtml;
+
+    document.getElementById('status').hidden = true;
+    document.getElementById('app').hidden = false;
+
+    setupScrollSpy();
+
+    // close mobile nav after picking a section
+    document.getElementById('tocList').addEventListener('click', function(){
+      document.body.classList.remove('nav-open');
+    });
+  }
+
+  function showError(url, err){
+    var isFile = location.protocol === 'file:';
+    var html = '<h2>Couldn’t load the specification</h2>'
+      + '<div class="err">'
+      + '<p>Failed to fetch <code>'+escapeHtml(url)+'</code>: '+escapeHtml(err.message || String(err))+'</p>';
+    if(isFile){
+      html += '<p>You opened this file directly (<code>file://</code>), so the browser blocks reading '
+        + '<code>spec.md</code> next to it. Serve the folder over HTTP instead, e.g.:</p>'
+        + '<p><code>python -m http.server</code> &nbsp;then open&nbsp; <code>http://localhost:8000/</code></p>'
+        + '<p>Or host the repo (GitHub Pages / jsDelivr / raw CDN) — the point of fetching the files is that '
+        + 'git stays the source of truth.</p>';
+    } else {
+      html += '<p>Check that <code>'+escapeHtml(url)+'</code> exists next to this HTML file and is reachable.</p>';
+    }
+    html += '</div>';
+    var s = document.getElementById('status');
+    s.innerHTML = html; s.hidden = false;
+  }
+
+  // ---- boot ------------------------------------------------------------
+  function initTheme(){
+    var saved = null;
+    try{ saved = localStorage.getItem('spec-theme'); }catch(e){}
+    if(saved) document.documentElement.setAttribute('data-theme', saved);
+    document.getElementById('themeBtn').addEventListener('click', function(){
+      var cur = document.documentElement.getAttribute('data-theme');
+      if(!cur){ cur = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+      var next = cur === 'dark' ? 'light' : 'dark';
+      document.documentElement.setAttribute('data-theme', next);
+      try{ localStorage.setItem('spec-theme', next); }catch(e){}
+    });
+    document.getElementById('hlBtn').addEventListener('click', function(){
+      var on = document.body.classList.toggle('hl-params');
+      this.setAttribute('aria-pressed', on ? 'true' : 'false');
+      this.classList.toggle('active', on);
+    });
+    document.getElementById('menuBtn').addEventListener('click', function(){
+      document.body.classList.toggle('nav-open');
+    });
+  }
+
+  function load(){
+    initTheme();
+    fetch(SPEC_URL, {cache:'no-cache'}).then(function(res){
+      if(!res.ok) throw new Error('HTTP ' + res.status + ' ' + res.statusText);
+      return res.text();
+    }).then(function(md){
+      return fetch(PARAMS_URL, {cache:'no-cache'}).then(function(res){
+        if(res.ok){ return res.json().then(function(j){ PARAMS = j || {}; HAS_PARAMS_FILE = true; }); }
+        return null; // params optional; render with everything unset
+      }).catch(function(){ /* ignore param load/parse errors */ })
+        .then(function(){ render(md); });
+    }).catch(function(err){ showError(SPEC_URL, err); });
+  }
+
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', load);
+  } else { load(); }
+})();
+</script>
+</body>
+</html>
