@@ -29,6 +29,11 @@ _Please Note: This document describes only the aspects of the competition organi
 - Teams may choose a direction to navigate to, including no direction at all. The direction may be changed at any time by the [Controller], and will apply from the next [Tick] onwards. Each [Tick], the team will automatically move 1 [Unit] in the chosen direction. Movement is clamped if this would take the team outside of the map. If no direction is active, the team will not move.
 - There is no collision. Teams may occupy the same location as another team or challenge, and may move through them without restriction.
 
+## Spawning
+
+- At the beginning of the first day, each team will spawn evenly distributed at a random location at the far edge of the map. Teams will not know the spawn location of other teams.
+- At the beginning of the second day, teams will spawn according to the following permutation rule relative to their position from the first day: `1 2 3 4 5 6 7 8` -> `3 5 1 7 2 8 4 6`. That is, the team that spawned at position 1 on the first day will spawn at position 3 on the second day, and so on. This ensures that teams closer to the starting challenge on day 1 will be further away from the starting challenge on day 2, and vice versa. Teams will not know the spawn location of other teams.
+
 ## Vision
 
 - Teams will always see the location of their own character, [Attack-Defense] challenges, [KotH] challenges, and [Bonus] challenges.
@@ -37,7 +42,7 @@ _Please Note: This document describes only the aspects of the competition organi
 ## Bounds
 
 - [Storm]: A bounds system is in place to gradually shrink the size of the map over time. The bounds are represented by a storm that shrinks the playable area of the map.
-- The storm will after @SHRINK_DELAY_TICKS [Tick]s have passed. After this time, it will linearly shrink the map by @SHRINK_SPEED_PER_TICK [Unit]s per [Tick] until the end of the game.
+- The storm will begin after @SHRINK_DELAY_TICKS [Tick]s have passed. After this time, it will linearly shrink the map by @SHRINK_SPEED_PER_TICK [Unit]s per [Tick] until the end of the game.
 - [Attack-Defense] and [KotH] challenges whose center lies within the storm bounds will retire. Retired challenges will no longer participate in [Round]s.
 - In order to motivate teams to stay within bounds, teams whose center lies within the storm bounds will not receive [In-Bounds Bonus] points until they move back into the playable area of the map.
 - [In-Bounds Bonus]: In-Bounds Bonus points are rewarded to teams for staying within the playable area of the map. A team gains @IN_RANGE_REWARD_POINTS [In-Bounds Bonus] points for every @IN_RANGE_REWARD_EVERY_TICKS [Tick]s that they are within the playable area of the map. This counter resets if the team moves into the storm bounds, and begins counting as soon as the team moves back into the playable area of the map. 
