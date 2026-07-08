@@ -76,7 +76,14 @@ _Please Note: This document describes only the aspects of the competition organi
 - Traffic arriving to the hosted instance of the challenge will be routed through a single IP such that the attacked team cannot identify the source.
 - As soon as the [Attack-Defense] challenge is activated, the team will have access to the instances of other teams that have activated the challenge.
 - All team instances of the [Attack-Defense] challenge, including the team's own instance, are only accessible over the player VPN connection while the team is within range of the challenge. If the team moves out of range, further packets will be dropped by the networking layer until the team moves back into range. The exception to this rule is the hosted attacker instance provided by the platform, which can always access other teams but can never access the own team's instance.
+
+## Traffic Captures
+
 - Automatic PCAP traffic capture is enabled for the team instance, and accessible for download only while within range of the challenge. The PCAP files are rotated every @PCAP_ROTATION_SECS seconds, or when they exceed @PCAP_MAX_SIZE_MB megabytes in size.
+- The source IP address of incoming traffic (as seen in the PCAPs) may change at any point in time, but is guaranteed to be within the @PCAP_SOURCE_IP_SUBNET subnet.
+- The target IP address (i.e., the IP address of the team's instance as seen in the PCAPs) may change when a team activates a new image for the challenge, but is guaranteed to be within the @PCAP_TARGET_IP_SUBNET subnet. Note that this concernes only the IP address of the instance as seen in the PCAPs, and does not affect the IP address used to access the instance over the player VPN connection and from the hosted attacker instance.
+- The name of the PCAP file provided by the platform is in the format `<challenge_slug>-yyyymmdd-hhmmss-<hash>.pcap`.
+- The organization provides an example PCAP file that can be used to verify that ingestion of PCAP files is working correctly. This example PCAP file is available in the team handout.
 
 ## Defending
 
@@ -133,21 +140,25 @@ _Please Note: This document describes only the aspects of the competition organi
 ## Scoring
 
 - [KotH Score]: The internal score awarded to a given submission by the [KotH] challenge is referred to as the [KotH Score]. The [KotH Score] is a non-negative integer, with higher scores being better. The [KotH Score] is determined by the challenge itself, and may be based on any criteria that the challenge author chooses.
+- [KotH Rank]: The rank of a team for a given [Round] is determined by the [KotH Score] of the team's activated submission for that [Round]. Teams ranks are determined by ordering them from highest to lowest [KotH Score]. If two or more teams have the same [KotH Score], they will be considered tied and will receive the same rank, without compensating for the tie in the ranks of other teams. For example, if two teams tie for first place, they will both be considered to have rank 1, and the next team will be considered to have rank 2. Teams without an active submission for a given [Round] will be considered to have 0 [KotH Score] for that [Round], automatically placing them at the bottom of the ranking for that [Round].
 - [KotH Point]: KotH points are rewarded to teams for submitting solutions to [KotH] challenges based on how they rank relative to other teams' submissions. This ranking is generally based on the [KotH Score] of each team's activated submission for that [Round].
-- The number of [KotH Point]s awarded to a team for a given [Round] is determined by the rank achieved by the team, as well as the total number of teams that have activated submissions for that [Round]. The last ranked team will receive 1 [KotH Point], and each higher ranked team will receive 1 additional [KotH Point] than the team ranked below them. If a team has no activated submission for a given [Round], they will receive 0 [KotH Point]s for that [Round]. If a team ties with another team for a given [Round], they will receive the same number of [KotH Point]s as the other team.
-- If only one team has an activated submission for a given [Round], no [KotH Point]s will be awarded to that team for that [Round].
+- The number of [KotH Point]s awarded to a team for a given [Round] is determined by the [KotH Rank] achieved by the team, as well as the total number of teams that have activated submissions for that [Round]. The lowest [KotH Rank] will receive 0 [KotH Point]s, and each higher rank will receive 1 additional [KotH Point] relative to the rank below them. The maximum score achievable by a team is therefore bounded at the total number of teams that have activated submissions for that [Round] minus 1, achieved only if there are no ties between teams in that [Round].
 - The amount of [KotH Point]s gained by a team for a given [Round] is shown on the platform after the [Round] has ended. This information is available to all teams, even if they did not have an activated submission for that [Round].
 
 # Bonus Challenges
 
 ## Basic
 
-- [Bonus]: A bonus challenge is a Jeopardy-style challenge solvable by at most one team. The first bonus challenge spawns after @BONUS_SPAWN_DELAY_TICKS [Tick]s, after which one additional bonus challenge spawns every @BONUS_SPAWN_INTERVAL_TICKS [Tick]s.
-- When a [Bonus] challenge spawns, it will be placed at the fairest eligible location on the map. A location is considered eligible if it will remain within bounds for at least the next @BONUS_SPAWN_SAFE_TICKS_TO_SHRINK [Tick]s and not within @BONUS_SPAWN_SAFE_DISTANCE_TO_PLAYERS [Unit]s of any team. The fairest eligible location is the location that minimizes the total distance [Unit] sum to all teams, while being equidistant from the two nearest teams. If multiple such locations exist, a random one is chosen. If no eligible locations exist, the bonus challenge will not spawn.
-- The name of a [Bonus] challenge is publicly available to all teams as soon as the challenge spawns.
+- [Bonus]: A bonus challenge is a Jeopardy-style challenge solvable by at most one team.
+- The name and category of a [Bonus] challenge is publicly available to all teams as soon as the challenge spawns.
 - A team is considered to be within range of a [Bonus] challenge if the center-to-center distance between the team and the challenge is @VISION_RANGE_UNITS or less.
 - Once a team is within range of a [Bonus] challenge, the team will have access to the description and attachments of the challenge. This information will remain accessible, even if the team is no longer within range of the challenge.
 - [Bonus] challenges remain active until the end of the game or until they have been solved once. Unlike [Attack-Defense] and [KotH] challenges, [Bonus] challenges do not retire when the [Storm] bounds reach them.
+
+## Spawning
+
+- The first bonus challenge spawns after @BONUS_SPAWN_DELAY_TICKS [Tick]s. After this, a new bonus challenge will spawn every @BONUS_SPAWN_INTERVAL_TICKS [Tick]s.
+- When a [Bonus] challenge spawns, it will be placed at the fairest eligible location on the map. A location is considered eligible if it will remain within bounds for at least the next @BONUS_SPAWN_SAFE_TICKS_TO_SHRINK [Tick]s and is not within @BONUS_SPAWN_SAFE_DISTANCE_TO_PLAYERS [Unit]s of any team. The fairest eligible location is the location that minimizes the total distance [Unit] sum to all teams, while being equidistant from the two nearest teams. If multiple such locations exist, a random one is chosen. If no eligible locations exist, another attempt at spawning the challenge will be made after @BONUS_SPAWN_RETRY_INTERVAL_TICKS [Tick]s. This process will repeat until a location is found or the game ends.
 
 ## Instances
 
@@ -192,3 +203,14 @@ _Please Note: This document describes only the aspects of the competition organi
 - A team in an [Encounter] may choose to forfeit the current challenge at any time. This acts as if the opposing team has submitted the valid flag for the [Encounter] challenge, and exists solely to allow a team to end an [Encounter] early if they are unable or unwilling to complete the challenge.
 - A team may propose to draw the [Encounter] challenge at any time. If the opposing team accepts, neither team will receive any [Encounter Points] and both teams will be placed on an [Encounter Cooldown]. A draw proposal has unlimited duration and cannot be taken back once proposed. If a draw proposal is rejected, either team may re-propose a draw at any time.
 - The public scoreboard shows the amount of [Encounter]s that a team has rejected, been rejected, won, lost, and drawn. This information is available to all teams, even if they did not participate in the [Encounter]. No information is available about the specific teams that a team has encountered, or the outcome of those encounters.
+
+# AI
+
+_The guidelines below are only regarding the use of AI as integrated within the Overseers CTF platform. Please refer to the official competition rules for additional rules regarding the use of AI in the competition._
+
+- The platform provides a simple chat interface that can be used to talk to an AI assistant. The AI assistant can be used to ask generic questions about programming and cybersecurity.
+- The backing model used for the AI assistant is @AI_MODEL.
+- The AI assistant endpoint is guarded by a CAPTCHA to prevent abuse. It is not allowed to automate access to the AI assistant endpoint, and any attempts to do so will be considered a violation of the competition rules.
+- The AI assistant is not aware of the specific rules of the competition, and will not provide any information about the challenges or the game state.
+- All messages sent to the AI assistant are logged and may be reviewed by the jury.
+- Access to the AI assistant during an [Encounter] is disabled for both teams, as [Encounter] challenges are designed to be solved without external assistance.
