@@ -98,7 +98,7 @@ If that succeeds, you can push the image to the platform:
 docker push europe-west2-docker.pkg.dev/overseers/t0-test/d0-demo:login-bypass-fixed
 ```
 
-If the image is accepted, it should be available for activation on the platform once you're within range of the challenge.
+If the image is accepted, it should be available for activation on the platform once you're within range of the challenge. **You will need to activate your patch on the platform for it to take effect.** Note that while your new image is being deployed, you may suffer downtime for your service.
 
 Good luck defending!
 
@@ -166,7 +166,7 @@ docker build -t europe-west2-docker.pkg.dev/overseers/t0-test/d0-demo/exploit:no
 docker push europe-west2-docker.pkg.dev/overseers/t0-test/d0-demo/exploit:notes-list-secret
 ```
 
-Finally, activate the attacker on the platform once you're within range of the challenge. The platform will then run your attacker on time and submit any flags it finds.
+**Finally, activate the attacker on the platform once you're within range of the challenge.** The platform will then run your attacker on time and submit any flags it finds.
 
 Note that the reference attacker also supports flag IDs if needed. To access those, you can use `team_status["vulns"]`. The format of the data contained in this will vary per challenge.
 
